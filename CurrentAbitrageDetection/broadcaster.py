@@ -1,5 +1,6 @@
 
 from datetime import datetime, timedelta
+import prov_utils
 import random
 import selectors
 import socket
@@ -52,7 +53,7 @@ class TestPublisher(object):
             
             quotes = random.sample(quotes, k=len(quotes)- random.choice((0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3)))
 
-            if random.random() < 0.95:
+            if random.random() < 0.05:
                 xxx, yyy = sorted(random.sample(list(self.reference), 2))
                 xxx_per_usd = self.reference[xxx] if xxx not in REVERSE_QUOTED else 1/self.reference[xxx]
                 yyy_per_usd = self.reference[yyy] if yyy not in REVERSE_QUOTED else 1/self.reference[yyy]
@@ -99,7 +100,7 @@ class ForexProvider(object):
         
     def register_subscription(self):
         data, addr = self.subscription_req.recvfrom(REQUEST_SIZE)
-        subscriber = prov_utils.deserialize(data)
+        subscriber = prov_utils.deserialize_addr(data)
         self.publisher.register_subs(subscriber)
 
     @staticmethod

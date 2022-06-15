@@ -40,4 +40,4 @@ def unmarshal_message(message:bytes):
         ccy2 = record[11:14].decode('utf-8')
         price = deserialize_price(record[14:22])
         records.append((ts, ccy1, ccy2, price))
-    return records;
+    return records
