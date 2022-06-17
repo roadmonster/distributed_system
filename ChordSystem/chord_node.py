@@ -1,8 +1,8 @@
-
-
-
-from multiprocessing.sharedctypes import Value
-
+from gettext import npgettext
+import hashlib
+import pickle
+from platform import node
+import sys
 
 M = 25
 NODES = 2 ** M
@@ -64,11 +64,11 @@ class ModRangeIter(object):
 
 
 class FingerEntry(object):
-    def __init__(self, n, k, node=None):
-        if not (0 <= n < NODES and 0 < k <= M):
+    def __init__(self, bucket_num, k, node=None):
+        if not (0 <= bucket_num < NODES and 0 < k <= M):
             raise ValueError('invalid finger entry values')
-        self.start = (n + 2 ** (k-1)) % NODES
-        self.next_start = (n + 2 ** k) % NODES if k < M else n
+        self.start = (bucket_num + 2 ** (k-1)) % NODES
+        self.next_start = (bucket_num + 2 ** k) % NODES if k < M else n
         self.interval = ModRange(self.start, self.next_start, NODES)
         self.node = node
     
@@ -80,8 +80,47 @@ class FingerEntry(object):
 
 class ChordNode(object):
     def __init__(self, port, buddy=None):
+        # find the bucket # of the given port and assigned it as my node #
         self.node = Chord.lookup_addr(port)
+        # create k entries in my finger table object
+        # in case of self.node get returned None from the lookup_addr() which shall triger the FingerEntry() ctor to raise error
+        # creating a list of None firstly
+        self.finger = [None] + [FingerEntry(self.node, k) for k in range(1, M+1)]
+        
+        self.predecessor = None
+        # remember the keys that I have, store them in a dict
+        self.keys = {}
+        # no joined to the group after creation
+        self.joined = False
+        # remember the buddy so that I could connect to it to join the group
+        self.buddy = Chord.lookup_addr(buddy)
 
+    def __repr__(self):
+        fingers = '.'.join([str(self.finger[i].node) for i in range(1, M+1)])
+        return '<{}:{}[{}]>'.format(self.node, self.predecessor, fingers)
+    
+    @property
+    def successor(self):
+        return self.finger[1].node
+
+    @successor.setter
+    def successor(self, id_):
+        self.finger[1].node = id_
+
+    def find_successor(self, id_):
+        pass
+
+    def find_predecessor(self, id_):
+        """
+        find the id_'s predecessor
+        look up node# that satisfy node# < id_ <node#.successor
+        which means this node# is the predesssor of id_
+        while the condition is not satisfied, we keey send rpc to get closest preceeding finger
+        """
+        node_num = self.node
+        while id_ not in ModRange(node_num + 1, self.call_rpc(node_num, 'successor', id_), NODES):
+            node_num = self.call_rpc(node_num, 'closest_preceding_finger', id_)
+        return node_num
 
 class Chord(object):
 
@@ -101,20 +140,69 @@ class Chord(object):
 
     @staticmethod
     def lookup_node(n):
-        if Chord.node_map is None:
-            nm = {}
 
+        #in case the node_map is not initialized, we precompute all the combination of ports and hosts
+        if Chord.node_map is None:
+            # create a empty dict for node_map
+            nm = {}
             for host in POSSIBLE_HOSTS:
                 for port in POSSIBLE_PORTS:
                     addr = (host, port)
+                    # get the hash of the address and check if already exists if already exists, shoot a message
+                    # otherwise, put the (hash:addr) into the dict
                     n = Chord.hash(addr, M)
                     if n in nm:
                         print('cannot use', addr, 'hash conflict', n)
-                    nm[n] = addr
+                    else:
+                        nm[n] = addr
+            # assign the dict to the class propery
             Chord.node_map = nm
+        # look up in the precomputed node_map if not existed otherwise simply return the matching result
+        # works since lookup_addr() call this function with its keys, impossible to encounter situation with entries
         return Chord.node_map[n]
 
+    @staticmethod
     def lookup_addr(port, host='localhost'):
         addr = (host, port)
         try:
+            # run the lookup_node() with whatever parameter to make sure node_map in Chord is initialized
+            # hence no need to have return value
             Chord.lookup_node(0)
+        except KeyError:
+            pass
+        for n in Chord.node_map:
+            # return the bucket # that matching the addr proved
+            if Chord.node_map[n] == addr:
+                return n
+        return None
+
+    @staticmethod
+    def hash(key, bits=None):
+        # serialize the (host, port)
+        p = pickle.dumps(key)
+        # pass the bytes into the secure hash function and get string represenatation
+        hb = hashlib.sha1(p).digest()
+        # render the hashed bytes back to integer, with byte order reading as big endian
+        h = int.from_bytes(hb, byteorder='big')
+        
+        # mod the chords number to get the actual hash bucket
+        if bits is not None:
+            h %=2 ** bits
+        return h
+        
+if __name__ == '__main__':
+    usage = """
+    Usage: python chord_node.py PORT [BUDDY]
+    Idea is to start various processes like this:
+    $ python3 chord_node.py 34023 & # initialize node
+    $ python3 chord_node.py 31488 34023 & # add second node using existing node as buddy
+    $ python3 chord_node.py 60011 34023 &
+    """
+    print('CHORD: m=', M)
+    if len(sys.argv) not in (2, 3):
+        print(usage)
+        exit(1)
+    port = int(sys.arv[1])
+    buddy = int(sys.argv[2]) if len(sys.sys.argv) > 2 else None
+    print('starting node', Chord.lookup_addr(port), 'joining via buddy at port ', Chord.lookup_addr(buddy))
+    ChordNode(port, buddy).serve_forever()
