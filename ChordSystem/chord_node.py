@@ -1,8 +1,8 @@
-from gettext import npgettext
 import hashlib
 import pickle
-from platform import node
+import socket
 import sys
+import time
 
 M = 25
 NODES = 2 ** M
@@ -108,8 +108,10 @@ class ChordNode(object):
         self.finger[1].node = id_
 
     def find_successor(self, id_):
-        pass
-
+        # get the predecessor of the id_
+        node_num = self.find_predecessor(id_)
+        # rpc  to get the successor of this predecessor
+        return self.call_rpc(node_num, 'successor')
     def find_predecessor(self, id_):
         """
         find the id_'s predecessor
@@ -121,6 +123,50 @@ class ChordNode(object):
         while id_ not in ModRange(node_num + 1, self.call_rpc(node_num, 'successor', id_), NODES):
             node_num = self.call_rpc(node_num, 'closest_preceding_finger', id_)
         return node_num
+
+    def closest_preceding_finger(self, id_):
+        """
+        iteratre from the furthest finger to the closest
+        """
+        for i in range(M, 0, -1):
+            if self.finger[i].node in ModRange(self.node + 1, id_, NODES):
+                return self.finger[i].node
+        # if none in my fingers satisfies the condition node# < id_
+        # then I shall return my node number becauses I iterate reversely, hence I should be the closes
+        return self.node
+
+    def join(self, node_num=None):
+        print('{}.join({})'.format(self.node, node_num if node_num is not None else ''))
+        time.sleep(1)
+        if node_num is None:
+            for i in range(1, M+1):
+                self.finger[i].node = self.node
+            self.predecessor = self.node
+        else:
+            self.init_finger_table(node_num)
+            self.update_others()
+
+    def init_finger_table(self, np):
+        print('{}.init_finger_table({})'.format(self.node, np))
+        self.successor = self.call_rpc(np, 'find_successor', self.finger[1].start)
+        self.predecessor = self.call_rpc(self.successor, 'predecessor', self.node)
+        self.call_rpc(self.successor, 'predecessor', self.node)
+        for i in range(1, M):
+            if self.finger[i+1].start in ModRange(self.node, self.finger[i].node, NODES):
+                self.finger[i+1].node = self.finger[i].node
+            else:
+                self.finger[i + 1].node = self.call_rpc(np, 'find_successor', self.finger[i+1].start)
+        print('init_finger_table:', self)
+
+    
+    def call_rpc(self, n, method, arg1=None, arg2=None):
+        """call a method on another node"""
+        if n == self.node:
+            return self.dispatch_rpc(method, arg1, arg2)
+        return Chord.call_rpc(n, method, arg1, arg2)
+    
+    def dispatch_rpc(self, method, arg1, arg2):
+        pass
 
 class Chord(object):
 
@@ -136,7 +182,17 @@ class Chord(object):
 
     @staticmethod
     def call_rpc(n, method, arg1=None, arg2=None):
-        pass
+        """call the function on the given node"""
+        addr = Chord.lookup_node(n)
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            print('{},{}({}{})'.format(n, method, arg1 if arg1 is not None else '', 
+                                        ',' + str(arg2) if arg2 is not None else ''))
+            sock.connect(addr)
+            sock.sendall(pickle.dumps((method, arg1, arg2)))
+            result = pickle.loads(sock.recv(BUF_SZ))
+            print('\tresult:', result)
+            return result
+
 
     @staticmethod
     def lookup_node(n):
