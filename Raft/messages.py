@@ -1,6 +1,9 @@
-
-from ctypes import addressof
-import uu
+"""
+Define Message types needed for Raft communication
+Author: Hao Li
+2022-07-01
+This is a free software release to the public
+"""
 
 
 class BaseMessage(object):
@@ -30,7 +33,6 @@ class VoteResponseMsg(BaseMessage):
         self.data = data
 
 class AppendEntriesMsg(BaseMessage):
-
     def __init__(self, sender, receiver, term, entries, commitIndex, prevLogIndex, prevLogTerm):
         super().__init__(self, sender, receiver, term)
         self.type = BaseMessage.AppendEntries
@@ -40,7 +42,6 @@ class AppendEntriesMsg(BaseMessage):
         self.prevLogIndex = prevLogIndex
 
 class AppendEntriesResponseMsg(BaseMessage):
-
     def __init__(self, sender, receiver, term, success, matchIndex):
         super().__init__(sender, receiver, term)
         self.success = success
@@ -48,7 +49,6 @@ class AppendEntriesResponseMsg(BaseMessage):
         self.matchIndex = matchIndex
 
 class LogEntry(object):
-
     def __init__(self, term, command, addr, uuid, _type=0) -> None:
         self.term = term
         self.commmand = command
@@ -57,7 +57,6 @@ class LogEntry(object):
         self.type = _type
 
 class Request(object):
-
     def __init__(self, request_msg, uuid=0) -> None:
         self.request_msg = request_msg
         self.uuid = uuid
