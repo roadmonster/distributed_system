@@ -7,6 +7,7 @@ import pickle
 
 from KThread import *
 from Raft.messages import *
+from follower_functions import acceptor
 class Server(object):
     def __init__(self, id_) -> None:
         self.id = id_
@@ -140,21 +141,37 @@ class Server(object):
         self.append_entries()
     
     def append_entries(self):
-        
+        """
+        this is a method leader node calls to send updates of nextIndex, matchIndex and commitIndex
+        and current commands to followers
+        Or to use this as a heartbeat to inform the follower that leader is alive
+        """
+        # infinitely loop to keep the heartbeat every 0.5 seconds
         while True:
-            receipients = self.peers[:]
+            
+            # current node is under change
             if self.during_change != 0:
-                for peer in receipients:
+                # check all peer and set those not have a nextIndex initial value
+                for peer in self.peers:
                     if peer not in self.nextIndex:
                         self.nextIndex[peer] = len(self.log) + 1
                         self.matchIndex[peer] = 0
-            for peer in receipients:
+            
+            for peer in self.peers:
+                # my leader log is more advanced than this peer's status
+                # means this peer could be following the older leader
+                # I need to update them
                 if len(self.log) >= self.nextIndex[peer]:
+                    # prevLogIndex is nextIndex's previous
                     prevLogIndex = self.nextIndex[peer] - 1
                     if prevLogIndex != 0:
-                        prevLogTerm = self.log[prevLogIndex - 1].term
+                        # prevLogTerm is the term of prevLogIndex
+                        prevLogTerm = self.log[prevLogIndex].term
                     else:
                         prevLogTerm = 0
+                    # the entries I need to send to this peer should be 
+                    # from the prevLogIndex to most current ones, but I shall send one at a time
+                    
                     entries = [self.log[prevLogIndex]]
                 else:
                     entries = []
@@ -163,7 +180,7 @@ class Server(object):
                         prevLogTerm = self.log[prevLogIndex - 1].term
                     else:
                         prevLogTerm = 0
-            
+                # create appendEntriesMsg and send it to the peers' addr
                 content = AppendEntriesMsg(self.id, peer, self.currentTerm, entries, self.commitIndex, prevLogIndex, prevLogTerm)
                 data = pickle.dumps(content)
                 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
